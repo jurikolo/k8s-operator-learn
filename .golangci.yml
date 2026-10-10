@@ -52,6 +52,11 @@ linters:
           - dupl
           - lll
         path: internal/*
+      # test fixtures repeat literal names and helper params on purpose
+      - linters:
+          - goconst
+          - unparam
+        path: _test\.go
     paths:
       - third_party$
       - builtin$

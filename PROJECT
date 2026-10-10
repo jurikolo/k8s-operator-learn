@@ -8,4 +8,32 @@ layout:
 - go.kubebuilder.io/v4
 projectName: k8s-operator-learn
 repo: github.com/jurikolo/k8s-operator-learn
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: jurikolo.name
+  group: custom
+  kind: CustomNamespace
+  path: github.com/jurikolo/k8s-operator-learn/api/v1
+  version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: jurikolo.name
+  group: custom
+  kind: CustomDeployment
+  path: github.com/jurikolo/k8s-operator-learn/api/v1
+  version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: jurikolo.name
+  group: custom
+  kind: CustomConfig
+  path: github.com/jurikolo/k8s-operator-learn/api/v1
+  version: v1
 version: "3"
