@@ -1,0 +1,8 @@
+apiVersion: custom.jurikolo.name/v1
+kind: CustomNamespace
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-operator-learn
+    app.kubernetes.io/managed-by: kustomize
+  name: team-apps
+  namespace: default

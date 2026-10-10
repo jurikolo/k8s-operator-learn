@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- custom_v1_customnamespace.yaml
+- custom_v1_customdeployment.yaml
+- custom_v1_customconfig.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
