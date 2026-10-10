@@ -1,3 +1,19 @@
+<!--
+SYNC IMPACT REPORT
+==================
+Version change: 1.0.0 → 1.1.0 (MINOR: new principles II–III, new sections, governance filled in)
+
+Modified principles: none renamed; Principle I unchanged
+Added:
+  - Principle II. Learning Purpose
+  - Principle III. Living Documentation
+  - Section: Project Scope
+  - Section: Development Workflow
+  - Governance rules filled in
+Removed: template placeholder comments for principles II+
+
+Deferred TODOs: none
+-->
 # k8s-operator-learn Constitution
 
 ## Core Principles
@@ -7,44 +23,19 @@ The best code is the code never written. Every change is the smallest complete c
 Never cut: validation at trust boundaries, error handling that prevents data loss, security, accessibility, anything the user asked for. Applies to specs and plans too: smallest spec/plan that satisfies the requirement, every task traces to a requirement.
 Source: [Ponytail](https://github.com/DietrichGebert/ponytail) (MIT); ruleset in [AGENTS.md](../../AGENTS.md).
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Learning Purpose
+This project exists to learn how a Kubernetes operator works, not to serve production. Every feature MUST demonstrate an operator concept (CRDs, reconciliation, code generation, deployment) and MUST stay readable: explicit kubebuilder idioms over cleverness, code a learner can follow in one read. Production-grade hardening (HA, autoscaling, multi-tenancy) is out of scope unless it is itself the lesson. When minimal code (Principle I) and teaching value conflict, keep the smallest version that still shows the concept clearly.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Living Documentation
+The project MUST carry minimalistic technical documentation that lets a consumer operate it: how to run tests, generate manifests, build the code, and deploy the operator to a cluster. This documentation lives in markdown file(s) outside README.md and is updated with every functional change that affects those steps. README.md MUST be updated continuously so a consumer can see at a glance what the project offers and how to benefit from it; it links to the technical docs instead of duplicating them. Documentation stays minimalistic: commands and outcomes, no narrative or theory.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+## Project Scope
+A kubebuilder-generated Go operator (API domain `jurikolo.name`) built for learning, targeting a local development cluster via kubeconfig. Features are added to demonstrate operator concepts, one concept at a time. The project is not production-hardened and makes no compatibility promises between learning iterations.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
-
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
-
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
-
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
-
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+## Development Workflow
+Features follow the spec-kit flow (`/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`); small fixes may skip straight to implementation. Documentation updates (Principle III) are part of "done" for every functional change, not a follow-up task. Verification before completion: code builds, tests pass, and any documented command in the docs still works as written.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
+This constitution supersedes all other project practices. Amendments require an updated version (MAJOR: principle removal/redefinition, MINOR: new principle or materially expanded guidance, PATCH: wording), a Sync Impact Report, and a refreshed Last Amended date. All reviews and implementations MUST verify compliance with the three principles; unjustified complexity is a blocking finding. Runtime development guidance lives in [AGENTS.md](../../AGENTS.md).
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
-
-**Version**: 1.0.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
-<!-- Principles II+ are still template placeholders; complete them with /speckit-constitution -->
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.1.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
