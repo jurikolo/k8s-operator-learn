@@ -3,9 +3,12 @@
 **
 
 # Re-include Go source files (but not *_test.go)
-# If you use Podman, re-include your source directories by name,
-# such as !cmd, !api, and !internal.
+# Podman/Buildah won't re-include files under a directory excluded by
+# the ** above, so the source directories must be re-included by name.
 # See https://github.com/containers/buildah/issues/6417
+!cmd
+!api
+!internal
 !**/*.go
 **/*_test.go
 
