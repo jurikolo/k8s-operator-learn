@@ -51,44 +51,82 @@ func (r *CustomDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	var cd customv1.CustomDeployment
 	if err := r.Get(ctx, req.NamespacedName, &cd); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Error(err, "get failed", "CustomDeployment", req.Namespace+"/"+req.Name)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !cd.DeletionTimestamp.IsZero() {
-		var d appsv1.Deployment
-		err := r.Get(ctx, client.ObjectKey{Namespace: cd.Spec.Namespace, Name: cd.Spec.Name}, &d)
+		// the real resource lives in the namespace named by the referenced
+		// CustomNamespace's spec.name; resolve the reference first
+		var cn customv1.CustomNamespace
+		err := r.Get(ctx, client.ObjectKey{Namespace: cd.Namespace, Name: cd.Spec.Namespace}, &cn)
 		if apierrors.IsNotFound(err) {
+			// reference gone: the real resource is unreachable; release the finalizer
 			controllerutil.RemoveFinalizer(&cd, customv1.FinalizerName)
-			return ctrl.Result{}, r.Update(ctx, &cd)
+			if err := r.Update(ctx, &cd); err != nil {
+				log.Error(err, "update failed", "CustomDeployment", cd.Namespace+"/"+cd.Name)
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
 		if err != nil {
+			log.Error(err, "get failed", "CustomNamespace", cd.Spec.Namespace)
+			return ctrl.Result{}, err
+		}
+		realNS := cn.Spec.Name
+		var d appsv1.Deployment
+		err = r.Get(ctx, client.ObjectKey{Namespace: realNS, Name: cd.Spec.Name}, &d)
+		if apierrors.IsNotFound(err) {
+			controllerutil.RemoveFinalizer(&cd, customv1.FinalizerName)
+			if err := r.Update(ctx, &cd); err != nil {
+				log.Error(err, "update failed", "CustomDeployment", cd.Namespace+"/"+cd.Name)
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
+		if err != nil {
+			log.Error(err, "get failed", "deployment", cd.Spec.Name, "namespace", realNS)
 			return ctrl.Result{}, err
 		}
 		if d.Labels[customv1.OwnerLabelKey] != ownerRef("CustomDeployment", cd.Namespace, cd.Name) {
 			// not ours: nothing to clean up
 			controllerutil.RemoveFinalizer(&cd, customv1.FinalizerName)
-			return ctrl.Result{}, r.Update(ctx, &cd)
+			if err := r.Update(ctx, &cd); err != nil {
+				log.Error(err, "update failed", "CustomDeployment", cd.Namespace+"/"+cd.Name)
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
 		if err := r.Delete(ctx, &d); client.IgnoreNotFound(err) != nil {
+			log.Error(err, "delete failed", "deployment", cd.Spec.Name, "namespace", realNS)
 			return ctrl.Result{}, err
 		}
+		log.Info("deleted deployment", "deployment", cd.Spec.Name, "namespace", realNS, "CustomDeployment", cd.Namespace+"/"+cd.Name)
 		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	// gate on the referenced CustomNamespace existing
 	var cn customv1.CustomNamespace
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cd.Namespace, Name: cd.Spec.Namespace}, &cn); apierrors.IsNotFound(err) {
-		return ctrl.Result{RequeueAfter: requeueInterval}, setCondition(ctx, r.Status(), &cd, &cd.Status.Conditions, metav1.Condition{
+		err := setCondition(ctx, r.Status(), &cd, &cd.Status.Conditions, metav1.Condition{
 			Type:    customv1.ConditionTypeReady,
 			Status:  metav1.ConditionFalse,
 			Reason:  "MissingCustomNamespace",
 			Message: "CustomNamespace " + cd.Spec.Namespace + " does not exist; retrying until it appears",
 		})
+		if err != nil {
+			log.Error(err, "status update failed", "CustomDeployment", cd.Namespace+"/"+cd.Name)
+		}
+		return ctrl.Result{RequeueAfter: requeueInterval}, err
 	} else if err != nil {
+		log.Error(err, "get failed", "CustomNamespace", cd.Spec.Namespace)
 		return ctrl.Result{}, err
 	}
 
 	if err := ensureFinalizer(ctx, r.Client, &cd); err != nil {
+		log.Error(err, "update failed", "CustomDeployment", cd.Namespace+"/"+cd.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -97,51 +135,71 @@ func (r *CustomDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		replicas = *cd.Spec.Replicas
 	}
 	owner := ownerRef("CustomDeployment", cd.Namespace, cd.Name)
+	// the Deployment lives in the real namespace the referenced CustomNamespace manages
+	realNS := cn.Spec.Name
 
 	var d appsv1.Deployment
-	err := r.Get(ctx, client.ObjectKey{Namespace: cd.Spec.Namespace, Name: cd.Spec.Name}, &d)
+	err := r.Get(ctx, client.ObjectKey{Namespace: realNS, Name: cd.Spec.Name}, &d)
 	switch {
 	case apierrors.IsNotFound(err):
 		d = appsv1.Deployment{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      cd.Spec.Name,
-				Namespace: cd.Spec.Namespace,
+				Namespace: realNS,
 				Labels:    map[string]string{customv1.OwnerLabelKey: owner},
 			},
 			Spec: deploymentSpec(cd.Spec.Name, cd.Spec.Image, replicas),
 		}
 		if err := r.Create(ctx, &d); err != nil && !apierrors.IsAlreadyExists(err) {
+			// report the failure on the object, then return it for backoff retry
+			log.Error(err, "create failed", "deployment", cd.Spec.Name, "namespace", realNS)
+			_ = setCondition(ctx, r.Status(), &cd, &cd.Status.Conditions, metav1.Condition{
+				Type:    customv1.ConditionTypeReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  reasonCreateFailed,
+				Message: err.Error(),
+			})
 			return ctrl.Result{}, err
 		}
-		log.Info("created deployment", "deployment", cd.Spec.Name, "namespace", cd.Spec.Namespace)
+		log.Info("created deployment", "deployment", cd.Spec.Name, "namespace", realNS, "CustomDeployment", cd.Namespace+"/"+cd.Name)
 	case err != nil:
+		log.Error(err, "get failed", "deployment", cd.Spec.Name, "namespace", realNS)
 		return ctrl.Result{}, err
 	case d.Labels[customv1.OwnerLabelKey] != owner:
-		log.Info("name taken by an unmanaged deployment", "deployment", cd.Spec.Name, "namespace", cd.Spec.Namespace)
-		return ctrl.Result{RequeueAfter: requeueInterval}, setCondition(ctx, r.Status(), &cd, &cd.Status.Conditions, metav1.Condition{
+		log.Info("name taken by an unmanaged deployment", "deployment", cd.Spec.Name, "namespace", realNS)
+		err := setCondition(ctx, r.Status(), &cd, &cd.Status.Conditions, metav1.Condition{
 			Type:    customv1.ConditionTypeReady,
 			Status:  metav1.ConditionFalse,
-			Reason:  "NameConflict",
-			Message: "deployment " + cd.Spec.Name + " already exists in namespace " + cd.Spec.Namespace + " and is not managed by this operator",
+			Reason:  reasonNameConflict,
+			Message: "deployment " + cd.Spec.Name + " already exists in namespace " + realNS + " and is not managed by this operator",
 		})
+		if err != nil {
+			log.Error(err, "status update failed", "CustomDeployment", cd.Namespace+"/"+cd.Name)
+		}
+		return ctrl.Result{RequeueAfter: requeueInterval}, err
 	default:
 		// ours: repair drift in the fields we own
 		if d.Spec.Template.Spec.Containers[0].Image != cd.Spec.Image || d.Spec.Replicas == nil || *d.Spec.Replicas != replicas {
 			d.Spec.Replicas = &replicas
 			d.Spec.Template.Spec.Containers[0].Image = cd.Spec.Image
 			if err := r.Update(ctx, &d); err != nil {
+				log.Error(err, "update failed", "deployment", cd.Spec.Name, "namespace", realNS)
 				return ctrl.Result{}, err
 			}
-			log.Info("repaired deployment drift", "deployment", cd.Spec.Name, "namespace", cd.Spec.Namespace)
+			log.Info("repaired deployment drift", "deployment", cd.Spec.Name, "namespace", realNS)
 		}
 	}
 
-	return ctrl.Result{RequeueAfter: requeueInterval}, setCondition(ctx, r.Status(), &cd, &cd.Status.Conditions, metav1.Condition{
+	err = setCondition(ctx, r.Status(), &cd, &cd.Status.Conditions, metav1.Condition{
 		Type:    customv1.ConditionTypeReady,
 		Status:  metav1.ConditionTrue,
 		Reason:  reasonReady,
 		Message: "deployment is present and matches the spec",
 	})
+	if err != nil {
+		log.Error(err, "status update failed", "CustomDeployment", cd.Namespace+"/"+cd.Name)
+	}
+	return ctrl.Result{RequeueAfter: requeueInterval}, err
 }
 
 // deploymentSpec builds the single-container Deployment spec the operator owns.

@@ -25,9 +25,15 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // CustomNamespaceSpec defines the desired state of CustomNamespace.
-// The object's name is the whole interface: it names the real namespace
-// this object manages.
+// The name field is the whole interface: it names the real namespace
+// this object manages; the object's own metadata.name is ignored.
 type CustomNamespaceSpec struct {
+	// name is the name of the real Namespace created.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="name is immutable"
+	Name string `json:"name"`
 }
 
 // CustomNamespaceStatus defines the observed state of CustomNamespace.
@@ -55,7 +61,7 @@ type CustomNamespaceStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:validation:XValidation:rule="self.metadata.name != 'default' && !self.metadata.name.startsWith('kube-')",message="name is reserved"
+// +kubebuilder:validation:XValidation:rule="self.spec.name != 'default' && !self.spec.name.startsWith('kube-')",message="name is reserved"
 
 // CustomNamespace is the Schema for the customnamespaces API
 type CustomNamespace struct {
@@ -65,10 +71,10 @@ type CustomNamespace struct {
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitzero"`
 
-	// spec defines the desired state of CustomNamespace; carries no fields —
-	// the object's name names the managed real namespace.
-	// +optional
-	Spec CustomNamespaceSpec `json:"spec,omitzero"`
+	// spec defines the desired state of CustomNamespace; the name field
+	// names the managed real namespace.
+	// +required
+	Spec CustomNamespaceSpec `json:"spec"`
 
 	// status defines the observed state of CustomNamespace
 	// +optional

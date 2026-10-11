@@ -47,6 +47,9 @@ spec:
                 description: name is the name of the real Deployment created in the
                   target namespace.
                 type: string
+                x-kubernetes-validations:
+                - message: name is immutable
+                  rule: self == oldSelf
               namespace:
                 description: |-
                   namespace names an existing CustomNamespace; the real Deployment is

@@ -38,8 +38,19 @@ spec:
             type: object
           spec:
             description: |-
-              spec defines the desired state of CustomNamespace; carries no fields —
-              the object's name names the managed real namespace.
+              spec defines the desired state of CustomNamespace; the name field
+              names the managed real namespace.
+            properties:
+              name:
+                description: name is the name of the real Namespace created.
+                maxLength: 63
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                type: string
+                x-kubernetes-validations:
+                - message: name is immutable
+                  rule: self == oldSelf
+            required:
+            - name
             type: object
           status:
             description: status defines the observed state of CustomNamespace
@@ -114,10 +125,12 @@ spec:
                 - type
                 x-kubernetes-list-type: map
             type: object
+        required:
+        - spec
         type: object
         x-kubernetes-validations:
         - message: name is reserved
-          rule: self.metadata.name != 'default' && !self.metadata.name.startsWith('kube-')
+          rule: self.spec.name != 'default' && !self.spec.name.startsWith('kube-')
     served: true
     storage: true
     subresources:

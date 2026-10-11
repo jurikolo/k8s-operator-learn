@@ -32,8 +32,35 @@ make undeploy
 
 ## What the CRDs do
 
-- `CustomNamespace` (in `default`): manages a real namespace of the same name; reserved names (`default`, `kube-*`) rejected; deletion drains and is blocked while the namespace holds resources.
-- `CustomDeployment` (in `default`): creates a real Deployment (`spec.name`, `spec.image`, `spec.replicas` default 1) inside the namespace named by `spec.namespace`, which must reference an existing CustomNamespace and is immutable.
-- `CustomConfig` (in `default`): same as a ConfigMap (`data`, `binaryData`, `immutable`), created in the namespace named by `spec.namespace` under the same reference rules; the ConfigMap is named after the custom object.
+Identity lives in `spec.name` on all three kinds — the custom object's own `metadata.name` is arbitrary and ignored:
 
-Status: each kind reports a `Ready` condition (`Ready`, `MissingCustomNamespace`, `NameConflict`, `NamespaceDraining`, `Reconciling`). Check with `kubectl describe <kind> <name> -n default`.
+```yaml
+apiVersion: custom.jurikolo.name/v1
+kind: CustomNamespace
+metadata:
+  name: anything-i-like        # ignored by the operator
+spec:
+  name: team-apps              # the real namespace; immutable, reserved names rejected
+```
+
+**Breaking change vs 001**: the object's name no longer names the real resource. 001-style objects (no `spec.name`) are rejected at admission — add `spec.name` when re-applying old manifests.
+
+- `CustomNamespace` (in `default`): manages the real namespace named by `spec.name`; reserved names (`default`, `kube-*`) rejected; deletion drains and is blocked while the namespace holds resources.
+- `CustomDeployment` (in `default`): creates a real Deployment (`spec.name`, `spec.image`, `spec.replicas` default 1) inside the real namespace managed by the referenced CustomNamespace (`spec.namespace` names that custom object; its `spec.name` is the real namespace) and is immutable.
+- `CustomConfig` (in `default`): same as a ConfigMap (`data`, `binaryData`, `immutable`), named by `spec.name`, created inside the real namespace managed by the referenced CustomNamespace under the same reference rules.
+
+**First claim wins**: the first custom object to create a real resource owns it (owner label `custom.jurikolo.name/owner`). A second object claiming the same name reports `Ready=False, Reason=NameConflict` and never takes the resource over; deleting a loser leaves the winner's resource untouched.
+
+Status: each kind reports a `Ready` condition (`Ready`, `MissingCustomNamespace`, `NameConflict`, `CreateFailed`, `NamespaceDraining`, `Reconciling`). Check with `kubectl describe <kind> <name> -n default`.
+
+## Log lines
+
+With `make run` in the foreground, expect one line per real-resource change:
+
+```text
+created namespace namespace=team-apps CustomNamespace=default/anything-i-like
+deleted deployment deployment=web namespace=team-apps CustomDeployment=default/web
+create failed deployment=web namespace=ghost error="..."   # Error level, cause included
+```
+
+`created …` / `deleted …` at Info level carry the real resource's kind, name, namespace and the owning custom object; every failed API operation logs `<operation> failed` at Error level with the cause.

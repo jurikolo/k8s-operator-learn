@@ -24,7 +24,7 @@ kubebuilder single-project layout (per plan.md): API types in `api/v1/`, reconci
 
 **Purpose**: Confirm the starting point is healthy before touching anything.
 
-- [ ] T001 Run `make test` and confirm the 001 baseline suite is green; record the test count before changes
+- [x] T001 Run `make test` and confirm the 001 baseline suite is green; record the test count before changes
 
 **Checkpoint**: Baseline known — no changes made yet.
 
@@ -36,13 +36,13 @@ kubebuilder single-project layout (per plan.md): API types in `api/v1/`, reconci
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 Add `Name string` to `CustomNamespaceSpec` in api/v1/customnamespace_types.go with markers per contracts/crds.md: `+kubebuilder:validation:Required`, `MaxLength=63`, `Pattern=^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`, `XValidation:rule="self == oldSelf",message="name is immutable"`; move the root-level reserved-name CEL rule from `self.metadata.name` to `self.spec.name` (`!= 'default' && !startsWith('kube-')`, message "name is reserved")
-- [ ] T003 [P] Add `Name string` to `CustomConfigSpec` in api/v1/customconfig_types.go with markers: `Required`, `MaxLength=253`, `Pattern=^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`, `XValidation:rule="self == oldSelf",message="name is immutable"`
-- [ ] T004 [P] Add `XValidation:rule="self == oldSelf",message="name is immutable"` to `CustomDeploymentSpec.Name` in api/v1/customdeployment_types.go
-- [ ] T005 Run `make manifests generate` to regenerate config/crd/bases and zz_generated.deepcopy.go
-- [ ] T006 Switch CustomNamespace reconciler identity to `cn.Spec.Name` in internal/controller/customnamespace_controller.go: the `Get`/`Create`/`namespaceEmpty` object keys and log arguments stop reading `cn.Name` (owner-label bookkeeping keeps CR identity)
-- [ ] T007 [P] Switch CustomConfig reconciler identity to `cc.Spec.Name` in internal/controller/customconfig_controller.go: ConfigMap `Get`/`Create` names come from `cc.Spec.Name`; owner label unchanged
-- [ ] T008 Update existing fixtures/assertions in internal/controller/customnamespace_controller_test.go, customdeployment_controller_test.go, customconfig_controller_test.go to set `spec.name` on every custom object and assert real-resource names from `spec.name`; run `make test` — suite must be green with the count from T001 (admission rejections from the new markers are the only expected failure mode if a fixture is missed)
+- [x] T002 Add `Name string` to `CustomNamespaceSpec` in api/v1/customnamespace_types.go with markers per contracts/crds.md: `+kubebuilder:validation:Required`, `MaxLength=63`, `Pattern=^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`, `XValidation:rule="self == oldSelf",message="name is immutable"`; move the root-level reserved-name CEL rule from `self.metadata.name` to `self.spec.name` (`!= 'default' && !startsWith('kube-')`, message "name is reserved")
+- [x] T003 [P] Add `Name string` to `CustomConfigSpec` in api/v1/customconfig_types.go with markers: `Required`, `MaxLength=253`, `Pattern=^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`, `XValidation:rule="self == oldSelf",message="name is immutable"`
+- [x] T004 [P] Add `XValidation:rule="self == oldSelf",message="name is immutable"` to `CustomDeploymentSpec.Name` in api/v1/customdeployment_types.go
+- [x] T005 Run `make manifests generate` to regenerate config/crd/bases and zz_generated.deepcopy.go
+- [x] T006 Switch CustomNamespace reconciler identity to `cn.Spec.Name` in internal/controller/customnamespace_controller.go: the `Get`/`Create`/`namespaceEmpty` object keys and log arguments stop reading `cn.Name` (owner-label bookkeeping keeps CR identity)
+- [x] T007 [P] Switch CustomConfig reconciler identity to `cc.Spec.Name` in internal/controller/customconfig_controller.go: ConfigMap `Get`/`Create` names come from `cc.Spec.Name`; owner label unchanged
+- [x] T008 Update existing fixtures/assertions in internal/controller/customnamespace_controller_test.go, customdeployment_controller_test.go, customconfig_controller_test.go to set `spec.name` on every custom object and assert real-resource names from `spec.name`; run `make test` — suite must be green with the count from T001 (admission rejections from the new markers are the only expected failure mode if a fixture is missed)
 
 **Checkpoint**: `make test` green; real-resource identity comes from `spec.name`; behavior otherwise unchanged.
 
@@ -56,11 +56,11 @@ kubebuilder single-project layout (per plan.md): API types in `api/v1/`, reconci
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Add namespace ownership conflict detection in internal/controller/customnamespace_controller.go: stamp `custom.jurikolo.name/owner: CustomNamespace/<cr-ns>/<cr-name>` (existing `ownerRef()` helper) on created Namespaces; when the target Namespace already exists, adopt only if the label matches, otherwise set `Ready=False, Reason=NameConflict` with a message naming the conflict and the existing owner and leave the namespace untouched (research D3)
-- [ ] T010 [P] [US1] On failed real-resource Create in internal/controller/customnamespace_controller.go, set `Ready=False, Reason=CreateFailed, Message=<error>` via `setCondition` before returning the error (research D4)
-- [ ] T011 [P] [US1] Same `CreateFailed` condition on failed Create in internal/controller/customdeployment_controller.go
-- [ ] T012 [P] [US1] Same `CreateFailed` condition on failed Create in internal/controller/customconfig_controller.go
-- [ ] T013 [US1] Add collision test in internal/controller/customnamespace_controller_test.go: two CustomNamespace objects with different object names and the same `spec.name` → first `Ready=True`, second `Ready=False` with `Reason=NameConflict`; plus a pre-existing unmanaged namespace (no owner label) under the claimed name → `NameConflict`, namespace contents intact
+- [x] T009 [US1] Add namespace ownership conflict detection in internal/controller/customnamespace_controller.go: stamp `custom.jurikolo.name/owner: CustomNamespace/<cr-ns>/<cr-name>` (existing `ownerRef()` helper) on created Namespaces; when the target Namespace already exists, adopt only if the label matches, otherwise set `Ready=False, Reason=NameConflict` with a message naming the conflict and the existing owner and leave the namespace untouched (research D3)
+- [x] T010 [P] [US1] On failed real-resource Create in internal/controller/customnamespace_controller.go, set `Ready=False, Reason=CreateFailed, Message=<error>` via `setCondition` before returning the error (research D4)
+- [x] T011 [P] [US1] Same `CreateFailed` condition on failed Create in internal/controller/customdeployment_controller.go
+- [x] T012 [P] [US1] Same `CreateFailed` condition on failed Create in internal/controller/customconfig_controller.go
+- [x] T013 [US1] Add collision test in internal/controller/customnamespace_controller_test.go: two CustomNamespace objects with different object names and the same `spec.name` → first `Ready=True`, second `Ready=False` with `Reason=NameConflict`; plus a pre-existing unmanaged namespace (no owner label) under the claimed name → `NameConflict`, namespace contents intact
 
 **Checkpoint**: US1 independently testable — failed creates and duplicate claims report themselves; `make test` green.
 
@@ -76,9 +76,9 @@ kubebuilder single-project layout (per plan.md): API types in `api/v1/`, reconci
 
 Tasks T014–T016 touch the same three reconciler files — run sequentially.
 
-- [ ] T014 [US2] Extend the three existing creation `log.Info` calls ("created namespace/deployment/configmap") in internal/controller/customnamespace_controller.go, customdeployment_controller.go, customconfig_controller.go with an owning-object argument: `"<kind>", "<cr-ns>/<cr-name>"` (FR-001)
-- [ ] T015 [US2] Add `log.Info("deleted <kind>", identity…)` at the three finalizer-cleanup `Delete` sites (namespace in customnamespace_controller.go, deployment in customdeployment_controller.go, configmap in customconfig_controller.go) with the same identity arguments (FR-010)
-- [ ] T016 [US2] Add `log.Error(err, "<operation> failed", identity…)` at each error-return site in the three reconcilers (get/create/update/delete/status-write), keeping the returned error unchanged (FR-002, research D5)
+- [x] T014 [US2] Extend the three existing creation `log.Info` calls ("created namespace/deployment/configmap") in internal/controller/customnamespace_controller.go, customdeployment_controller.go, customconfig_controller.go with an owning-object argument: `"<kind>", "<cr-ns>/<cr-name>"` (FR-001)
+- [x] T015 [US2] Add `log.Info("deleted <kind>", identity…)` at the three finalizer-cleanup `Delete` sites (namespace in customnamespace_controller.go, deployment in customdeployment_controller.go, configmap in customconfig_controller.go) with the same identity arguments (FR-010)
+- [x] T016 [US2] Add `log.Error(err, "<operation> failed", identity…)` at each error-return site in the three reconcilers (get/create/update/delete/status-write), keeping the returned error unchanged (FR-002, research D5)
 
 **Checkpoint**: US2 independently testable — full create/delete/error trail visible in `make run` output; `make test` still green (no behavior change).
 
@@ -92,9 +92,9 @@ Tasks T014–T016 touch the same three reconciler files — run sequentially.
 
 ### Implementation for User Story 3
 
-- [ ] T017 [US3] Update config/samples/: CustomNamespace and CustomConfig samples set `spec.name` (object `metadata.name` arbitrary and distinct from it); CustomDeployment sample unchanged except a comment noting `spec.name` is immutable
-- [ ] T018 [US3] Add admission tests in internal/controller/customnamespace_controller_test.go and internal/controller/customconfig_controller_test.go: create rejected when `spec.name` missing; `spec.name` update rejected with "name is immutable"; reserved names (`default`, `kube-foo`) rejected with "name is reserved"; pattern-invalid names (uppercase) rejected; `spec.name` change on CustomDeployment rejected with "name is immutable" (FR-007/FR-008)
-- [ ] T019 [US3] Add independence test in internal/controller/customnamespace_controller_test.go: two CustomNamespace objects with arbitrary distinct object names and `spec.name` values `team-apps` and `team-b` → both real namespaces exist under their spec names (US3 acceptance 2)
+- [x] T017 [US3] Update config/samples/: CustomNamespace and CustomConfig samples set `spec.name` (object `metadata.name` arbitrary and distinct from it); CustomDeployment sample unchanged except a comment noting `spec.name` is immutable
+- [x] T018 [US3] Add admission tests in internal/controller/customnamespace_controller_test.go and internal/controller/customconfig_controller_test.go: create rejected when `spec.name` missing; `spec.name` update rejected with "name is immutable"; reserved names (`default`, `kube-foo`) rejected with "name is reserved"; pattern-invalid names (uppercase) rejected; `spec.name` change on CustomDeployment rejected with "name is immutable" (FR-007/FR-008)
+- [x] T019 [US3] Add independence test in internal/controller/customnamespace_controller_test.go: two CustomNamespace objects with arbitrary distinct object names and `spec.name` values `team-apps` and `team-b` → both real namespaces exist under their spec names (US3 acceptance 2)
 
 **Checkpoint**: All three stories independently functional; `make test` green.
 
@@ -104,9 +104,9 @@ Tasks T014–T016 touch the same three reconciler files — run sequentially.
 
 **Purpose**: Documentation (constitution III) and end-to-end verification.
 
-- [ ] T020 [P] Update docs/operating.md and README.md: spec-carried identity with example manifests, the log lines to expect (created/deleted/error), first-claim-wins behavior, and a breaking-change note for 001-style objects (object name no longer names the namespace — set `spec.name`)
-- [ ] T021 Run quickstart.md Scenarios 1–4 against dev-cluster (`make install` + `make run`): spec-only apply, creation/deletion logs, the misplaced-object repro reporting `MissingCustomNamespace`, duplicate-claim `NameConflict`; note Scenario 5 (`CreateFailed`) result if forceable
-- [ ] T022 Final verification: `make test`, `make build`, and every command in docs/operating.md works as written (constitution Development Workflow)
+- [x] T020 [P] Update docs/operating.md and README.md: spec-carried identity with example manifests, the log lines to expect (created/deleted/error), first-claim-wins behavior, and a breaking-change note for 001-style objects (object name no longer names the namespace — set `spec.name`)
+- [x] T021 Run quickstart.md Scenarios 1–4 against dev-cluster (`make install` + `make run`): spec-only apply, creation/deletion logs, the misplaced-object repro reporting `MissingCustomNamespace`, duplicate-claim `NameConflict`; note Scenario 5 (`CreateFailed`) result if forceable
+- [x] T022 Final verification: `make test`, `make build`, and every command in docs/operating.md works as written (constitution Development Workflow)
 
 ---
 
@@ -183,3 +183,9 @@ Task: "CreateFailed condition in internal/controller/customconfig_controller.go"
 - Log-line formatting is verified live (quickstart), not asserted in tests — do not add log-capture plumbing
 - `CreateFailed` has no deterministic envtest test (research D6) — quickstart Scenario 5 covers it
 - Avoid: new dependencies, webhooks, events, log-capture test harnesses — all explicitly rejected in research.md
+- Implementation outcome (2026-10-11): all 22 tasks done, 26/26 envtest specs green, lint clean. T021 ran against a throwaway envtest control plane (bin/k8s assets) because the dev-cluster VM was unreachable; all five scenarios verified, including Scenario 5 forced via a ConfigMap create into a terminating namespace.
+- T021 exposed and fixed a placement gap the task list missed: CustomDeployment/CustomConfig placed real resources into the physical namespace named by `spec.namespace` (the CustomNamespace object's name) — correct in 001 only because object name == real namespace name. They now resolve placement through the referenced CustomNamespace's `spec.name` (per spec FR-006), with a regression test (`places real resources in the real namespace named by the CustomNamespace's spec.name`).
+
+## Phase 7: Convergence
+
+- [ ] T023 Re-run quickstart.md Scenarios 1–4 against dev-cluster (`make install` + `make run`) once the cluster VM is reachable — T021 verified them on a substitute envtest control plane; confirm spec-only apply, created/deleted/error log lines, `MissingCustomNamespace` and duplicate-claim `NameConflict` on the real cluster per SC-001–SC-005 (partial)

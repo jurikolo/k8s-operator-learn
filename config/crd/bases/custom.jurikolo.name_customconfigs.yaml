@@ -53,6 +53,15 @@ spec:
               immutable:
                 description: immutable mirrors the ConfigMap's immutable flag.
                 type: boolean
+              name:
+                description: name is the name of the real ConfigMap created in the
+                  target namespace.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
+                x-kubernetes-validations:
+                - message: name is immutable
+                  rule: self == oldSelf
               namespace:
                 description: |-
                   namespace names an existing CustomNamespace; the real ConfigMap is
@@ -62,6 +71,7 @@ spec:
                 - message: namespace is immutable
                   rule: self == oldSelf
             required:
+            - name
             - namespace
             type: object
           status:

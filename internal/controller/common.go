@@ -30,6 +30,12 @@ import (
 // reasonReady is the success Reason reported by every controller.
 const reasonReady = "Ready"
 
+// Failure Reasons repeated across controllers (lint: goconst).
+const (
+	reasonCreateFailed = "CreateFailed"
+	reasonNameConflict = "NameConflict"
+)
+
 // setCondition writes cond into conditions on obj unless an equal condition is
 // already set; returns the status-write error only.
 func setCondition(ctx context.Context, w client.StatusWriter, obj client.Object, conditions *[]metav1.Condition, cond metav1.Condition) error {

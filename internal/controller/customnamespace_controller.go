@@ -56,76 +56,140 @@ type CustomNamespaceReconciler struct {
 // resources before allowing CustomNamespace deletion
 // +kubebuilder:rbac:groups=*,resources=*,verbs=get;list
 
-// Reconcile keeps a real namespace named after the CustomNamespace object.
+// Reconcile keeps a real namespace named by the object's spec.name.
 // Deleting the object is blocked (NamespaceDraining) while the namespace
 // still contains any resource; only an empty namespace is deleted.
+// Namespaces not carrying this operator's owner label are never touched
+// (NameConflict instead).
 func (r *CustomNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	var cn customv1.CustomNamespace
 	if err := r.Get(ctx, req.NamespacedName, &cn); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Error(err, "get failed", "CustomNamespace", req.Namespace+"/"+req.Name)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	owner := ownerRef("CustomNamespace", cn.Namespace, cn.Name)
 
 	if !cn.DeletionTimestamp.IsZero() {
 		var ns corev1.Namespace
-		err := r.Get(ctx, client.ObjectKey{Name: cn.Name}, &ns)
+		err := r.Get(ctx, client.ObjectKey{Name: cn.Spec.Name}, &ns)
 		if apierrors.IsNotFound(err) {
 			controllerutil.RemoveFinalizer(&cn, customv1.FinalizerName)
-			return ctrl.Result{}, r.Update(ctx, &cn)
+			if err := r.Update(ctx, &cn); err != nil {
+				log.Error(err, "update failed", "CustomNamespace", cn.Namespace+"/"+cn.Name)
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
 		if err != nil {
+			log.Error(err, "get failed", "namespace", cn.Spec.Name)
 			return ctrl.Result{}, err
 		}
-		empty, err := r.namespaceEmpty(ctx, cn.Name)
+		if ns.Labels[customv1.OwnerLabelKey] != owner {
+			// not ours: nothing to clean up
+			controllerutil.RemoveFinalizer(&cn, customv1.FinalizerName)
+			if err := r.Update(ctx, &cn); err != nil {
+				log.Error(err, "update failed", "CustomNamespace", cn.Namespace+"/"+cn.Name)
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
+		empty, err := r.namespaceEmpty(ctx, cn.Spec.Name)
 		if err != nil {
+			log.Error(err, "list failed", "namespace", cn.Spec.Name)
 			return ctrl.Result{}, err
 		}
 		if !empty {
-			log.Info("deletion blocked: namespace still contains resources", "namespace", cn.Name)
-			return ctrl.Result{RequeueAfter: requeueInterval}, setCondition(ctx, r.Status(), &cn, &cn.Status.Conditions, metav1.Condition{
+			log.Info("deletion blocked: namespace still contains resources", "namespace", cn.Spec.Name)
+			err := setCondition(ctx, r.Status(), &cn, &cn.Status.Conditions, metav1.Condition{
 				Type:    customv1.ConditionTypeReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  "NamespaceDraining",
 				Message: "deletion blocked: namespace still contains resources; empty it to proceed",
 			})
+			if err != nil {
+				log.Error(err, "status update failed", "CustomNamespace", cn.Namespace+"/"+cn.Name)
+			}
+			return ctrl.Result{RequeueAfter: requeueInterval}, err
 		}
 		if err := r.Delete(ctx, &ns); client.IgnoreNotFound(err) != nil {
+			log.Error(err, "delete failed", "namespace", cn.Spec.Name)
 			return ctrl.Result{}, err
 		}
+		log.Info("deleted namespace", "namespace", cn.Spec.Name, "CustomNamespace", cn.Namespace+"/"+cn.Name)
 		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	if err := ensureFinalizer(ctx, r.Client, &cn); err != nil {
+		log.Error(err, "update failed", "CustomNamespace", cn.Namespace+"/"+cn.Name)
 		return ctrl.Result{}, err
 	}
 
 	var ns corev1.Namespace
-	err := r.Get(ctx, client.ObjectKey{Name: cn.Name}, &ns)
+	err := r.Get(ctx, client.ObjectKey{Name: cn.Spec.Name}, &ns)
 	switch {
 	case apierrors.IsNotFound(err):
-		if err := r.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: cn.Name}}); err != nil && !apierrors.IsAlreadyExists(err) {
+		if err := r.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+			Name:   cn.Spec.Name,
+			Labels: map[string]string{customv1.OwnerLabelKey: owner},
+		}}); err != nil && !apierrors.IsAlreadyExists(err) {
+			// report the failure on the object, then return it for backoff retry
+			log.Error(err, "create failed", "namespace", cn.Spec.Name)
+			_ = setCondition(ctx, r.Status(), &cn, &cn.Status.Conditions, metav1.Condition{
+				Type:    customv1.ConditionTypeReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  reasonCreateFailed,
+				Message: err.Error(),
+			})
 			return ctrl.Result{}, err
 		}
-		log.Info("created namespace", "namespace", cn.Name)
+		log.Info("created namespace", "namespace", cn.Spec.Name, "CustomNamespace", cn.Namespace+"/"+cn.Name)
 	case err != nil:
+		log.Error(err, "get failed", "namespace", cn.Spec.Name)
 		return ctrl.Result{}, err
 	case !ns.DeletionTimestamp.IsZero():
 		// old namespace still terminating; recreate once it is gone
-		return ctrl.Result{RequeueAfter: requeueInterval}, setCondition(ctx, r.Status(), &cn, &cn.Status.Conditions, metav1.Condition{
+		err := setCondition(ctx, r.Status(), &cn, &cn.Status.Conditions, metav1.Condition{
 			Type:    customv1.ConditionTypeReady,
 			Status:  metav1.ConditionFalse,
 			Reason:  "Reconciling",
 			Message: "previous namespace is terminating; a new one will be created",
 		})
+		if err != nil {
+			log.Error(err, "status update failed", "CustomNamespace", cn.Namespace+"/"+cn.Name)
+		}
+		return ctrl.Result{RequeueAfter: requeueInterval}, err
+	case ns.Labels[customv1.OwnerLabelKey] != owner:
+		existing := ns.Labels[customv1.OwnerLabelKey]
+		if existing == "" {
+			existing = "no one (unmanaged)"
+		}
+		log.Info("namespace already claimed", "namespace", cn.Spec.Name, "owner", existing)
+		err := setCondition(ctx, r.Status(), &cn, &cn.Status.Conditions, metav1.Condition{
+			Type:    customv1.ConditionTypeReady,
+			Status:  metav1.ConditionFalse,
+			Reason:  reasonNameConflict,
+			Message: "namespace " + cn.Spec.Name + " is already claimed; existing owner: " + existing,
+		})
+		if err != nil {
+			log.Error(err, "status update failed", "CustomNamespace", cn.Namespace+"/"+cn.Name)
+		}
+		return ctrl.Result{RequeueAfter: requeueInterval}, err
 	}
 
-	return ctrl.Result{RequeueAfter: requeueInterval}, setCondition(ctx, r.Status(), &cn, &cn.Status.Conditions, metav1.Condition{
+	err = setCondition(ctx, r.Status(), &cn, &cn.Status.Conditions, metav1.Condition{
 		Type:    customv1.ConditionTypeReady,
 		Status:  metav1.ConditionTrue,
 		Reason:  reasonReady,
 		Message: "namespace is present",
 	})
+	if err != nil {
+		log.Error(err, "status update failed", "CustomNamespace", cn.Namespace+"/"+cn.Name)
+	}
+	return ctrl.Result{RequeueAfter: requeueInterval}, err
 }
 
 // namespaceEmpty reports whether the namespace holds no resources. It lists

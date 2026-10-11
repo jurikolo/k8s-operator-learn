@@ -4,9 +4,10 @@ metadata:
   labels:
     app.kubernetes.io/name: k8s-operator-learn
     app.kubernetes.io/managed-by: kustomize
-  name: app-settings
+  name: anything-i-like-too # arbitrary; the operator ignores the object's own name
   namespace: default
 spec:
   namespace: team-apps
+  name: app-settings # the real ConfigMap's name; immutable
   data:
     log_level: debug

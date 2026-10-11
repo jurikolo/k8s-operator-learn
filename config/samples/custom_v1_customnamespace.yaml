@@ -4,5 +4,7 @@ metadata:
   labels:
     app.kubernetes.io/name: k8s-operator-learn
     app.kubernetes.io/managed-by: kustomize
-  name: team-apps
+  name: anything-i-like # arbitrary; the operator ignores the object's own name
   namespace: default
+spec:
+  name: team-apps # the real namespace's name; immutable

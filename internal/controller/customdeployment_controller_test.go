@@ -178,4 +178,37 @@ var _ = Describe("CustomDeployment Controller", func() {
 		err := k8sClient.Update(ctx, cd)
 		Expect(err).To(MatchError(ContainSubstring("immutable")))
 	})
+
+	It("rejects changing spec.name", func() {
+		createCN(ctx, "us2-name-imm")
+		reconcileCN(ctx, "us2-name-imm")
+		createCD("us2-name-imm-cr", "us2-name-imm", "immname", "nginx:1.27", nil)
+
+		cd := &customv1.CustomDeployment{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "us2-name-imm-cr"}, cd)).To(Succeed())
+		cd.Spec.Name = "renamed"
+		Expect(k8sClient.Update(ctx, cd)).To(MatchError(ContainSubstring("immutable")))
+	})
+
+	It("places real resources in the real namespace named by the CustomNamespace's spec.name", func() {
+		// the CustomNamespace object's own name differs from its spec.name
+		Expect(k8sClient.Create(ctx, &customv1.CustomNamespace{
+			ObjectMeta: metav1.ObjectMeta{Name: "us2-place-ref", Namespace: "default"},
+			Spec:       customv1.CustomNamespaceSpec{Name: "us2-place-real"},
+		})).To(Succeed())
+		reconcileCN(ctx, "us2-place-ref")
+
+		createCD("us2-place-cd", "us2-place-ref", "placed", "nginx:1.27", nil)
+		reconcileCD("us2-place-cd")
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "us2-place-real", Name: "placed"}, &appsv1.Deployment{})).To(Succeed())
+
+		Expect(k8sClient.Create(ctx, &customv1.CustomConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "us2-place-cc", Namespace: "default"},
+			Spec:       customv1.CustomConfigSpec{Namespace: "us2-place-ref", Name: "us2-place-cc"},
+		})).To(Succeed())
+		_, err := (&CustomConfigReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}).Reconcile(ctx,
+			reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "us2-place-cc"}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "us2-place-real", Name: "us2-place-cc"}, &corev1.ConfigMap{})).To(Succeed())
+	})
 })

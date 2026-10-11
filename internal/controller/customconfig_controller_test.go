@@ -36,7 +36,7 @@ var _ = Describe("CustomConfig Controller", func() {
 	createCC := func(name, ns string, data map[string]string) *customv1.CustomConfig {
 		cc := &customv1.CustomConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-			Spec:       customv1.CustomConfigSpec{Namespace: ns, Data: data},
+			Spec:       customv1.CustomConfigSpec{Namespace: ns, Name: name, Data: data},
 		}
 		Expect(k8sClient.Create(ctx, cc)).To(Succeed())
 		return cc
@@ -105,8 +105,8 @@ var _ = Describe("CustomConfig Controller", func() {
 		}
 		Expect(k8sClient.Create(ctx, rogue)).To(Succeed())
 
-		// the real ConfigMap is named after the custom object, so the CR
-		// itself must be named "taken" to collide with the rogue ConfigMap
+		// the real ConfigMap is named by spec.name, so the claim must use
+		// spec.name "taken" to collide with the rogue ConfigMap
 		createCC("taken", "us3-conflict", map[string]string{"owner": "operator"})
 		reconcileCC("taken")
 
@@ -148,5 +148,23 @@ var _ = Describe("CustomConfig Controller", func() {
 		cc.Spec.Namespace = "us3-content"
 		err := k8sClient.Update(ctx, cc)
 		Expect(err).To(MatchError(ContainSubstring("immutable")))
+	})
+
+	It("rejects a missing spec.name and changing it after create", func() {
+		// an empty Go string marshals as name:"" and trips the pattern
+		// rule; a manifest omitting spec.name trips "Required value" —
+		// both rejections name spec.name
+		err := k8sClient.Create(ctx, &customv1.CustomConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "us3-no-name", Namespace: "default"},
+			Spec:       customv1.CustomConfigSpec{Namespace: "default"},
+		})
+		Expect(err).To(MatchError(ContainSubstring("spec.name")))
+
+		createCN(ctx, "us3-name-imm")
+		createCC("us3-name-imm-cr", "us3-name-imm", nil)
+		cc := &customv1.CustomConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "us3-name-imm-cr"}, cc)).To(Succeed())
+		cc.Spec.Name = "renamed"
+		Expect(k8sClient.Update(ctx, cc)).To(MatchError(ContainSubstring("immutable")))
 	})
 })

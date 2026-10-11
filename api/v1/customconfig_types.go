@@ -33,6 +33,13 @@ type CustomConfigSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="namespace is immutable"
 	Namespace string `json:"namespace"`
 
+	// name is the name of the real ConfigMap created in the target namespace.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="name is immutable"
+	Name string `json:"name"`
+
 	// data carries the ConfigMap's string data.
 	// +optional
 	Data map[string]string `json:"data,omitempty"`

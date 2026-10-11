@@ -40,10 +40,37 @@ var _ = Describe("CustomNamespace Controller", func() {
 			for _, name := range []string{"kube-system", "default", "kube-foo"} {
 				err := k8sClient.Create(ctx, &customv1.CustomNamespace{
 					ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-					Spec:       customv1.CustomNamespaceSpec{},
+					Spec:       customv1.CustomNamespaceSpec{Name: name},
 				})
 				Expect(err).To(MatchError(ContainSubstring("reserved")), "name: %s", name)
 			}
+		})
+
+		It("rejects a missing spec.name", func() {
+			// an empty Go string marshals as name:"" and trips the pattern
+			// rule; a manifest omitting spec.name trips "Required value" —
+			// both rejections name spec.name
+			err := k8sClient.Create(ctx, &customv1.CustomNamespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "us1-no-name", Namespace: "default"},
+				Spec:       customv1.CustomNamespaceSpec{},
+			})
+			Expect(err).To(MatchError(ContainSubstring("spec.name")))
+		})
+
+		It("rejects pattern-invalid names", func() {
+			err := k8sClient.Create(ctx, &customv1.CustomNamespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "us1-bad-pattern", Namespace: "default"},
+				Spec:       customv1.CustomNamespaceSpec{Name: "Team-Apps"},
+			})
+			Expect(err).To(MatchError(ContainSubstring("spec.name")))
+		})
+
+		It("rejects changing spec.name", func() {
+			createCN(ctx, "us1-immutable")
+			cn := &customv1.CustomNamespace{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "us1-immutable", Namespace: "default"}, cn)).To(Succeed())
+			cn.Spec.Name = "renamed"
+			Expect(k8sClient.Update(ctx, cn)).To(MatchError(ContainSubstring("immutable")))
 		})
 	})
 
@@ -119,14 +146,98 @@ var _ = Describe("CustomNamespace Controller", func() {
 			err := k8sClient.Get(ctx, client.ObjectKey{Name: "us1-team-d", Namespace: "default"}, &customv1.CustomNamespace{})
 			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
+
+		It("resolves duplicate claims first-claim-wins", func() {
+			createCN(ctx, "us1-dupe-first")
+			reconcileCN(ctx, "us1-dupe-first")
+
+			// a second object, differently named, claiming the same spec.name
+			Expect(k8sClient.Create(ctx, &customv1.CustomNamespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "us1-dupe-second", Namespace: "default"},
+				Spec:       customv1.CustomNamespaceSpec{Name: "us1-dupe-first"},
+			})).To(Succeed())
+			reconcileCN(ctx, "us1-dupe-second")
+
+			first := &customv1.CustomNamespace{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "us1-dupe-first", Namespace: "default"}, first)).To(Succeed())
+			Expect(metaFindCondition(first.Status.Conditions).Reason).To(Equal("Ready"))
+
+			second := &customv1.CustomNamespace{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "us1-dupe-second", Namespace: "default"}, second)).To(Succeed())
+			cond := metaFindCondition(second.Status.Conditions)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("NameConflict"))
+			Expect(cond.Message).To(ContainSubstring("CustomNamespace.default.us1-dupe-first"))
+		})
+
+		It("reports a name conflict and leaves a pre-existing unmanaged namespace untouched", func() {
+			Expect(k8sClient.Create(ctx, &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "us1-pre"},
+			})).To(Succeed())
+			Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "theirs", Namespace: "us1-pre"},
+			})).To(Succeed())
+
+			Expect(k8sClient.Create(ctx, &customv1.CustomNamespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "us1-pre-cr", Namespace: "default"},
+				Spec:       customv1.CustomNamespaceSpec{Name: "us1-pre"},
+			})).To(Succeed())
+			reconcileCN(ctx, "us1-pre-cr")
+
+			cn := &customv1.CustomNamespace{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "us1-pre-cr", Namespace: "default"}, cn)).To(Succeed())
+			cond := metaFindCondition(cn.Status.Conditions)
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("NameConflict"))
+			// namespace and its contents are untouched
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: "us1-pre", Name: "theirs"}, &corev1.ConfigMap{})).To(Succeed())
+		})
+
+		It("does not delete a foreign namespace when a losing claimant is deleted", func() {
+			createCN(ctx, "us1-win")
+			reconcileCN(ctx, "us1-win")
+
+			Expect(k8sClient.Create(ctx, &customv1.CustomNamespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "us1-lose", Namespace: "default"},
+				Spec:       customv1.CustomNamespaceSpec{Name: "us1-win"},
+			})).To(Succeed())
+			reconcileCN(ctx, "us1-lose")
+			Expect(k8sClient.Delete(ctx, &customv1.CustomNamespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "us1-lose", Namespace: "default"},
+			})).To(Succeed())
+			reconcileCN(ctx, "us1-lose")
+
+			// the loser releases its finalizer without touching the winner's namespace
+			err := k8sClient.Get(ctx, client.ObjectKey{Name: "us1-lose", Namespace: "default"}, &customv1.CustomNamespace{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "us1-win"}, &corev1.Namespace{})).To(Succeed())
+		})
+
+		It("creates real namespaces under spec.name, ignoring the object names", func() {
+			Expect(k8sClient.Create(ctx, &customv1.CustomNamespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "some-object-name", Namespace: "default"},
+				Spec:       customv1.CustomNamespaceSpec{Name: "team-apps"},
+			})).To(Succeed())
+			Expect(k8sClient.Create(ctx, &customv1.CustomNamespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "another-object-name", Namespace: "default"},
+				Spec:       customv1.CustomNamespaceSpec{Name: "team-b"},
+			})).To(Succeed())
+			reconcileCN(ctx, "some-object-name")
+			reconcileCN(ctx, "another-object-name")
+
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "team-apps"}, &corev1.Namespace{})).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "team-b"}, &corev1.Namespace{})).To(Succeed())
+		})
 	})
 })
 
-// createCN creates a CustomNamespace object in the default namespace.
+// createCN creates a CustomNamespace object in the default namespace; the
+// real namespace follows spec.name, here set to the object's own name.
 func createCN(ctx context.Context, name string) {
 	cn := &customv1.CustomNamespace{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-		Spec:       customv1.CustomNamespaceSpec{},
+		Spec:       customv1.CustomNamespaceSpec{Name: name},
 	}
 	Expect(k8sClient.Create(ctx, cn)).To(Succeed())
 }

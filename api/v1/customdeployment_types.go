@@ -34,6 +34,7 @@ type CustomDeploymentSpec struct {
 
 	// name is the name of the real Deployment created in the target namespace.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="name is immutable"
 	Name string `json:"name"`
 
 	// image is the container image the Deployment runs (single container).
